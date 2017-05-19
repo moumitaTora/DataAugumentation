@@ -129,18 +129,18 @@ function createModel(config)
     local SBatchNorm = cudnn.SpatialBatchNormalization
 
     -- The shortcut layer is either identity or 1x1 convolution
-    local function shortcut(nInputPlane, nOutputPlane, strideX, strideY)
+    local function shortcut(nInputPlane, nOutputPlane, stride)
       local useConv = shortcutType == 'C' or
          (shortcutType == 'B' and nInputPlane ~= nOutputPlane)
       if useConv then
          -- 1x1 convolution
          return nn.Sequential()
-            :add(Convolution(nInputPlane, nOutputPlane, 1, 1, strideX, strideY))
+            :add(Convolution(nInputPlane, nOutputPlane, 1, 1, stride,stride))
             :add(SBatchNorm(nOutputPlane))
       elseif nInputPlane ~= nOutputPlane then
          -- Strided, zero-padded identity shortcut
          return nn.Sequential()
-            :add(nn.SpatialAveragePooling(1, 1, strideX, strideY))
+            :add(nn.SpatialAveragePooling(1, 1, stride, stride))
             :add(nn.Concat(2)
                :add(nn.Identity())
                :add(nn.MulConstant(0)))
@@ -214,7 +214,7 @@ function createModel(config)
         iChannels = n *4
 
         local D = math.floor(n*(64/64))
-        local C = 32
+        local C = 1
 
         local s = nn.Sequential()
         s:add(split(nInputPlane, D, C, stride))
@@ -257,10 +257,10 @@ function createModel(config)
     end 
 
     -- Creates count residual blocks with specified number of features
-    local function layer(block, features, count, strideX, strideY)
+    local function layer(block, features, count, stride)
         local s = nn.Sequential()
         for i=1,count do
-            s:add(block(features, i == 1 and strideX or 1, i == 1 and strideY or 1))
+            s:add(block(features, i == 1 and stride or 1, i == 1 and stride or 1))
         end
         return s
     end
@@ -279,28 +279,28 @@ function createModel(config)
     model_f1:add(Convolution(1,16, 3,3, 1,1, 1,1))
     model_f1:add(SBatchNorm(16))
     model_f1:add(ReLU(true))
-    model_f1:add(layer(basicblock, 16, 2))
+    model_f1:add(layer(bottleneck, 16, 2))
 
     local f1 = model_f1(inp) -- 1x16x32x200
 
     local model_f2 = nn.Sequential()
-    model_f2:add(layer(bottleneck, 32, 4, 2, 2))
+    model_f2:add(layer(bottleneck, 32, 4, 2))
     local f2 = model_f2(f1) -- 1x32x16x100
 
     local model_f3 = nn.Sequential()
-    model_f3:add(layer(bottleneck, 64, 6, 2, 2))   
+    model_f3:add(layer(bottleneck, 64, 6, 2))   
     local f3 = model_f3(f2)
 
     local model_f4 = nn.Sequential()
-    model_f4:add(layer(bottleneck, 128, 8, 1, 2))   
+    model_f4:add(layer(bottleneck, 128, 8, 1))   
     local f4 = model_f4(f3)
 
     local model_f5 = nn.Sequential()
-    model_f5:add(layer(bottleneck, 256, 10, 1, 2))
+    model_f5:add(layer(bottleneck, 256, 10, 1))
     local f5 = model_f5(f4)
 
     local model_f6 = nn.Sequential()
-    model_f6:add(layer(bottleneck, 512, 4, 1, 2))
+    model_f6:add(layer(bottleneck, 512, 4, 1))
     local f6 = model_f6(f5)
 
     local upf6 = nn.SpatialFullConvolution(512,256, 1,2, 1,2,0,0,0,0)(f6)
